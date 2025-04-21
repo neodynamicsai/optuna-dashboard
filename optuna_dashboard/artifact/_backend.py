@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from typing import Any
     from typing import Optional
     from typing import TypedDict
+    from typing import Callable
 
     from optuna.artifacts._protocol import ArtifactStore
     from optuna.storages import BaseStorage
@@ -73,10 +74,18 @@ def get_artifact_path(
     return f"/artifacts/{study_id}/{trial_id}/{artifact_id}"
 
 
+# Default no-op prefix function if none is provided
+def _no_prefix(route: str) -> str:
+    return route
+
+
 def register_artifact_route(
-    app: Bottle, storage: BaseStorage, artifact_store: ArtifactStore | None
+    app: Bottle, 
+    storage: BaseStorage, 
+    artifact_store: ArtifactStore | None,
+    prefix_route: Callable[[str], str] = _no_prefix
 ) -> None:
-    @app.get("/artifacts/<study_id:int>/<artifact_id:re:[0-9a-fA-F-]+>")
+    @app.get(prefix_route("/artifacts/<study_id:int>/<artifact_id:re:[0-9a-fA-F-]+>"))
     def proxy_study_artifact(study_id: int, artifact_id: str) -> HTTPResponse | bytes:
         if artifact_store is None:
             response.status = 400  # Bad Request
@@ -96,7 +105,7 @@ def register_artifact_route(
         fp = artifact_store.open_reader(artifact_id)
         return HTTPResponse(fp, headers=headers)
 
-    @app.get("/artifacts/<study_id:int>/<trial_id:int>/<artifact_id:re:[0-9a-fA-F-]+>")
+    @app.get(prefix_route("/artifacts/<study_id:int>/<trial_id:int>/<artifact_id:re:[0-9a-fA-F-]+>"))
     def proxy_trial_artifact(
         study_id: int,
         trial_id: int,
@@ -120,7 +129,7 @@ def register_artifact_route(
         fp = artifact_store.open_reader(artifact_id)
         return HTTPResponse(fp, headers=headers)
 
-    @app.post("/api/artifacts/<study_id:int>/<trial_id:int>")
+    @app.post(prefix_route("/api/artifacts/<study_id:int>/<trial_id:int>"))
     @json_api_view
     def upload_trial_artifact_api(study_id: int, trial_id: int) -> dict[str, Any]:
         trial = storage.get_trial(trial_id)
@@ -164,7 +173,7 @@ def register_artifact_route(
             "artifacts": artifacts,
         }
 
-    @app.post("/api/artifacts/<study_id:int>")
+    @app.post(prefix_route("/api/artifacts/<study_id:int>"))
     @json_api_view
     def upload_study_artifact_api(study_id: int) -> dict[str, Any]:
         if artifact_store is None:
@@ -197,7 +206,7 @@ def register_artifact_route(
             "artifacts": list_study_artifacts(storage.get_study_system_attrs(study_id)),
         }
 
-    @app.delete("/api/artifacts/<study_id:int>/<trial_id:int>/<artifact_id:re:[0-9a-fA-F-]+>")
+    @app.delete(prefix_route("/api/artifacts/<study_id:int>/<trial_id:int>/<artifact_id:re:[0-9a-fA-F-]+>"))
     @json_api_view
     def delete_trial_artifact(study_id: int, trial_id: int, artifact_id: str) -> dict[str, Any]:
         from optuna.artifacts.exceptions import ArtifactNotFound
@@ -222,7 +231,7 @@ def register_artifact_route(
         response.status = 204
         return {}
 
-    @app.delete("/api/artifacts/<study_id:int>/<artifact_id:re:[0-9a-fA-F-]+>")
+    @app.delete(prefix_route("/api/artifacts/<study_id:int>/<artifact_id:re:[0-9a-fA-F-]+>"))
     @json_api_view
     def delete_study_artifact(study_id: int, artifact_id: str) -> dict[str, Any]:
         from optuna.artifacts.exceptions import ArtifactNotFound

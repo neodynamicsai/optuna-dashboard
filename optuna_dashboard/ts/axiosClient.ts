@@ -1,44 +1,51 @@
-import * as Optuna from "@optuna/types"
-import axios, { AxiosInstance } from "axios"
+import type * as Optuna from "@optuna/types"
+import axios, { type AxiosInstance } from "axios"
 import {
   APIClient,
-  APIMeta,
-  CompareStudiesPlotType,
-  CreateNewStudyResponse,
-  ParamImportanceEvaluator,
-  ParamImportancesResponse,
-  PlotResponse,
-  PlotType,
-  RenameStudyResponse,
-  StudyDetailResponse,
-  StudySummariesResponse,
-  UploadArtifactAPIResponse,
+  type APIMeta,
+  type CompareStudiesPlotType,
+  type CreateNewStudyResponse,
+  type ParamImportanceEvaluator,
+  type ParamImportancesResponse,
+  type PlotResponse,
+  type PlotType,
+  type RenameStudyResponse,
+  type StudyDetailResponse,
+  type StudySummariesResponse,
+  type UploadArtifactAPIResponse,
 } from "./apiClient"
-import {
+import type {
   FeedbackComponentType,
   StudyDetail,
   StudySummary,
   Trial,
 } from "./types/optuna"
 
+// Fetch root prefix from the global variable injected by the backend.
+// Fallback to empty string if it's not defined (e.g., during testing or if injection failed).
+const rootPrefix = (window as any).rootPrefix || ""
+
 export class AxiosClient extends APIClient {
   private axiosInstance: AxiosInstance
 
   constructor(API_ENDPOINT: string | undefined) {
     super()
-    this.axiosInstance = axios.create({ baseURL: API_ENDPOINT })
+    // Use rootPrefix to construct the final API base URL.
+    // API_ENDPOINT might still be used if provided (e.g. for specific test setups),
+    // but normally it should be undefined now.
+    const baseURL =
+      API_ENDPOINT !== undefined ? API_ENDPOINT : rootPrefix + "/api"
+    this.axiosInstance = axios.create({ baseURL: baseURL })
   }
 
   getMetaInfo = () =>
-    this.axiosInstance
-      .get<APIMeta>(`/api/meta`)
-      .then<APIMeta>((res) => res.data)
+    this.axiosInstance.get<APIMeta>(`/meta`).then<APIMeta>((res) => res.data)
   getStudyDetail = (
     studyId: number,
     nLocalTrials: number
   ): Promise<StudyDetail> =>
     this.axiosInstance
-      .get<StudyDetailResponse>(`/api/studies/${studyId}`, {
+      .get<StudyDetailResponse>(`/studies/${studyId}`, {
         params: {
           after: nLocalTrials,
         },
@@ -78,7 +85,7 @@ export class AxiosClient extends APIClient {
       })
   getStudySummaries = (): Promise<StudySummary[]> =>
     this.axiosInstance
-      .get<StudySummariesResponse>(`/api/studies`, {})
+      .get<StudySummariesResponse>(`/studies`, {})
       .then((res) => {
         return res.data.study_summaries.map((study): StudySummary => {
           return {
@@ -98,7 +105,7 @@ export class AxiosClient extends APIClient {
     directions: Optuna.StudyDirection[]
   ): Promise<StudySummary> =>
     this.axiosInstance
-      .post<CreateNewStudyResponse>(`/api/studies`, {
+      .post<CreateNewStudyResponse>(`/studies`, {
         study_name: studyName,
         directions,
       })
@@ -121,7 +128,7 @@ export class AxiosClient extends APIClient {
     removeAssociatedArtifacts: boolean
   ): Promise<void> =>
     this.axiosInstance
-      .delete(`/api/studies/${studyId}`, {
+      .delete(`/studies/${studyId}`, {
         data: {
           remove_associated_artifacts: removeAssociatedArtifacts,
         },
@@ -131,7 +138,7 @@ export class AxiosClient extends APIClient {
       })
   renameStudy = (studyId: number, studyName: string): Promise<StudySummary> =>
     this.axiosInstance
-      .post<RenameStudyResponse>(`/api/studies/${studyId}/rename`, {
+      .post<RenameStudyResponse>(`/studies/${studyId}/rename`, {
         study_name: studyName,
       })
       .then((res) => {
@@ -150,18 +157,16 @@ export class AxiosClient extends APIClient {
     studyId: number,
     note: { version: number; body: string }
   ): Promise<void> =>
-    this.axiosInstance
-      .put<void>(`/api/studies/${studyId}/note`, note)
-      .then(() => {
-        return
-      })
+    this.axiosInstance.put<void>(`/studies/${studyId}/note`, note).then(() => {
+      return
+    })
   saveTrialNote = (
     studyId: number,
     trialId: number,
     note: { version: number; body: string }
   ): Promise<void> =>
     this.axiosInstance
-      .put<void>(`/api/studies/${studyId}/${trialId}/note`, note)
+      .put<void>(`/studies/${studyId}/${trialId}/note`, note)
       .then(() => {
         return
       })
@@ -172,7 +177,7 @@ export class AxiosClient extends APIClient {
     dataUrl: string
   ): Promise<UploadArtifactAPIResponse> =>
     this.axiosInstance
-      .post<UploadArtifactAPIResponse>(`/api/artifacts/${studyId}/${trialId}`, {
+      .post<UploadArtifactAPIResponse>(`/artifacts/${studyId}/${trialId}`, {
         file: dataUrl,
         filename: fileName,
       })
@@ -185,7 +190,7 @@ export class AxiosClient extends APIClient {
     dataUrl: string
   ): Promise<UploadArtifactAPIResponse> =>
     this.axiosInstance
-      .post<UploadArtifactAPIResponse>(`/api/artifacts/${studyId}`, {
+      .post<UploadArtifactAPIResponse>(`/artifacts/${studyId}`, {
         file: dataUrl,
         filename: fileName,
       })
@@ -198,13 +203,13 @@ export class AxiosClient extends APIClient {
     artifactId: string
   ): Promise<void> =>
     this.axiosInstance
-      .delete<void>(`/api/artifacts/${studyId}/${trialId}/${artifactId}`)
+      .delete<void>(`/artifacts/${studyId}/${trialId}/${artifactId}`)
       .then(() => {
         return
       })
   deleteStudyArtifact = (studyId: number, artifactId: string): Promise<void> =>
     this.axiosInstance
-      .delete<void>(`/api/artifacts/${studyId}/${artifactId}`)
+      .delete<void>(`/artifacts/${studyId}/${artifactId}`)
       .then(() => {
         return
       })
@@ -214,7 +219,7 @@ export class AxiosClient extends APIClient {
     values?: number[]
   ): Promise<void> =>
     this.axiosInstance
-      .post<void>(`/api/trials/${trialId}/tell`, {
+      .post<void>(`/trials/${trialId}/tell`, {
         state,
         values,
       })
@@ -226,7 +231,7 @@ export class AxiosClient extends APIClient {
     user_attrs: { [key: string]: number | string }
   ): Promise<void> =>
     this.axiosInstance
-      .post<void>(`/api/trials/${trialId}/user-attrs`, { user_attrs })
+      .post<void>(`/trials/${trialId}/user-attrs`, { user_attrs })
       .then(() => {
         return
       })
@@ -236,7 +241,7 @@ export class AxiosClient extends APIClient {
   ): Promise<Optuna.ParamImportance[][]> =>
     this.axiosInstance
       .get<ParamImportancesResponse>(
-        `/api/studies/${studyId}/param_importances?evaluator=${evaluator}`
+        `/studies/${studyId}/param_importances?evaluator=${evaluator}`
       )
       .then((res) => {
         return res.data.param_importances
@@ -247,7 +252,7 @@ export class AxiosClient extends APIClient {
     clicked: number
   ): Promise<void> =>
     this.axiosInstance
-      .post<void>(`/api/studies/${studyId}/preference`, {
+      .post<void>(`/studies/${studyId}/preference`, {
         candidates: candidates,
         clicked: clicked,
         mode: "ChooseWorst",
@@ -257,7 +262,7 @@ export class AxiosClient extends APIClient {
       })
   skipPreferentialTrial = (studyId: number, trialId: number): Promise<void> =>
     this.axiosInstance
-      .post<void>(`/api/studies/${studyId}/${trialId}/skip`)
+      .post<void>(`/studies/${studyId}/${trialId}/skip`)
       .then(() => {
         return
       })
@@ -266,7 +271,7 @@ export class AxiosClient extends APIClient {
     historyUuid: string
   ): Promise<void> =>
     this.axiosInstance
-      .delete<void>(`/api/studies/${studyId}/preference/${historyUuid}`)
+      .delete<void>(`/studies/${studyId}/preference/${historyUuid}`)
       .then(() => {
         return
       })
@@ -275,7 +280,7 @@ export class AxiosClient extends APIClient {
     historyUuid: string
   ): Promise<void> =>
     this.axiosInstance
-      .post<void>(`/api/studies/${studyId}/preference/${historyUuid}`)
+      .post<void>(`/studies/${studyId}/preference/${historyUuid}`)
       .then(() => {
         return
       })
@@ -285,7 +290,7 @@ export class AxiosClient extends APIClient {
   ): Promise<void> =>
     this.axiosInstance
       .put<void>(
-        `/api/studies/${studyId}/preference_feedback_component`,
+        `/studies/${studyId}/preference_feedback_component`,
         component_type
       )
       .then(() => {
@@ -293,14 +298,14 @@ export class AxiosClient extends APIClient {
       })
   getPlot = (studyId: number, plotType: PlotType): Promise<PlotResponse> =>
     this.axiosInstance
-      .get<PlotResponse>(`/api/studies/${studyId}/plot/${plotType}`)
+      .get<PlotResponse>(`/studies/${studyId}/plot/${plotType}`)
       .then<PlotResponse>((res) => res.data)
   getCompareStudiesPlot = (
     studyIds: number[],
     plotType: CompareStudiesPlotType
   ): Promise<PlotResponse> =>
     this.axiosInstance
-      .get<PlotResponse>(`/api/compare-studies/plot/${plotType}`, {
+      .get<PlotResponse>(`/compare-studies/plot/${plotType}`, {
         params: { study_ids: studyIds },
       })
       .then<PlotResponse>((res) => res.data)

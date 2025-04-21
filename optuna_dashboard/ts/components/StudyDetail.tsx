@@ -12,12 +12,11 @@ import {
 } from "@mui/material"
 import Grid from "@mui/material/Grid"
 import { useAtomValue } from "jotai"
-import React, { FC, useEffect, useMemo } from "react"
+import React, { type FC, useEffect, useMemo } from "react"
 import { Link, useParams } from "react-router-dom"
 
 import { TrialTable } from "@optuna/react"
 import { actionCreator } from "../action"
-import { useConstants } from "../constantsProvider"
 import { studyDetailToStudy } from "../graphUtil"
 import {
   reloadIntervalState,
@@ -25,7 +24,7 @@ import {
   useStudyIsPreferential,
   useStudyName,
 } from "../state"
-import { AppDrawer, PageId } from "./AppDrawer"
+import { AppDrawer, type PageId } from "./AppDrawer"
 import { Contour } from "./GraphContour"
 import { GraphEdf } from "./GraphEdf"
 import { GraphParallelCoordinate } from "./GraphParallelCoordinate"
@@ -40,6 +39,9 @@ import { StudyHistory } from "./StudyHistory"
 import { TrialList } from "./TrialList"
 import { TrialSelection } from "./TrialSelection"
 
+// Define prefix variable outside the component
+const prefix = (window as any).rootPrefix || ""
+
 export const useURLVars = (): number => {
   const { studyId } = useParams<{ studyId: string }>()
 
@@ -47,15 +49,13 @@ export const useURLVars = (): number => {
     throw new Error("studyId is not defined")
   }
 
-  return useMemo(() => parseInt(studyId, 10), [studyId])
+  return useMemo(() => Number.parseInt(studyId, 10), [studyId])
 }
 
 export const StudyDetail: FC<{
   toggleColorMode: () => void
   page: PageId
 }> = ({ toggleColorMode, page }) => {
-  const { url_prefix } = useConstants()
-
   const theme = useTheme()
   const action = actionCreator()
   const studyId = useURLVars()
@@ -174,9 +174,6 @@ export const StudyDetail: FC<{
   } else if (page === "trialSelection") {
     content = <TrialSelection studyDetail={studyDetail} />
   } else if (page === "trialTable" && study !== null) {
-    const linkURL = (studyId: number, trialNumber: number) => {
-      return url_prefix + `/studies/${studyId}/trials?numbers=${trialNumber}`
-    }
     content = (
       <Box
         component="div"
@@ -184,12 +181,18 @@ export const StudyDetail: FC<{
       >
         <Card sx={{ margin: theme.spacing(2) }}>
           <CardContent>
-            <TrialTable study={study} linkComponent={Link} linkURL={linkURL} />
+            <TrialTable
+              study={study}
+              linkComponent={Link}
+              linkURL={(studyId: number, trialNumber: number) =>
+                `/dashboard/studies/${studyId}/trials?numbers=${trialNumber}`
+              }
+            />
             <Button
               variant="outlined"
               startIcon={<DownloadIcon />}
               download
-              href={`/csv/${studyDetail?.id}`}
+              href={`${prefix}/csv/${studyDetail?.id}`}
               sx={{ marginRight: theme.spacing(2), minWidth: "120px" }}
             >
               Download CSV File
@@ -245,7 +248,7 @@ export const StudyDetail: FC<{
     <>
       <IconButton
         component={Link}
-        to={url_prefix + "/"}
+        to={"/dashboard"}
         sx={{ marginRight: theme.spacing(1) }}
         color="inherit"
         title="Return to the top page"

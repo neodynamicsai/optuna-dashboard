@@ -1,9 +1,13 @@
 import { useQuery } from "@tanstack/react-query"
-import { AxiosError } from "axios"
+import type { AxiosError } from "axios"
 import { useSnackbar } from "notistack"
 import { useEffect } from "react"
-import { APIMeta } from "../apiClient"
+import type { APIMeta } from "../apiClient"
 import { useAPIClient } from "../apiClientProvider"
+
+// Fetch root prefix from the global variable injected by the backend.
+// Fallback to empty string if it's not defined.
+const rootPrefix = (window as any).rootPrefix || ""
 
 export const useArtifactBaseUrlPath = (): string => {
   const { apiClient } = useAPIClient()
@@ -14,7 +18,7 @@ export const useArtifactBaseUrlPath = (): string => {
   >({
     queryKey: ["apiMeta"],
     queryFn: () => apiClient.getMetaInfo(),
-    staleTime: Infinity,
+    staleTime: Number.POSITIVE_INFINITY,
     gcTime: 30 * 60 * 1000, // 30 minutes
   })
 
@@ -27,8 +31,12 @@ export const useArtifactBaseUrlPath = (): string => {
     }
   }, [error])
 
-  if (isLoading || error !== null) {
-    return ""
-  }
-  return data?.jupyterlab_extension_context?.base_url ?? ""
+  // Always return the runtime prefix. Ignore JupyterLab context for this purpose.
+  return rootPrefix
+
+  // Original logic (commented out):
+  // if (isLoading || error !== null) {
+  //   return ""
+  // }
+  // return data?.jupyterlab_extension_context?.base_url ?? ""
 }

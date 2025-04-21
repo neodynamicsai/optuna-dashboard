@@ -56,6 +56,30 @@ from .preferential._system_attrs import get_skipped_trial_ids
 from .preferential._system_attrs import report_skip
 
 
+# Read and sanitize the root prefix from environment variable
+raw_prefix = os.environ.get("OPTUNA_DASHBOARD_ROOT_PREFIX", "")
+# Ensure prefix starts with / and doesn't end with / unless it's just "/"
+if raw_prefix and not raw_prefix.startswith("/"):
+    root_prefix = "/" + raw_prefix
+else:
+    root_prefix = raw_prefix
+if len(root_prefix) > 1 and root_prefix.endswith("/"):
+    root_prefix = root_prefix[:-1]
+# If the prefix is effectively empty, set it to ""
+if root_prefix == "/":
+    root_prefix = ""
+
+logger = logging.getLogger(__name__)
+
+logger.info(f"Using root prefix: '{root_prefix}'")
+
+def prefix_route(route: str) -> str:
+    """Appends the global root_prefix to the route."""
+    if not route.startswith("/"):
+        route = "/" + route
+    return root_prefix + route
+
+
 if typing.TYPE_CHECKING:
     from typing import Any
     from typing import Literal
@@ -66,8 +90,6 @@ if typing.TYPE_CHECKING:
     from optuna.artifacts._protocol import ArtifactStore
     from optuna_dashboard.artifact.protocol import ArtifactBackend
 
-
-logger = logging.getLogger(__name__)
 
 # Static files
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -92,18 +114,45 @@ def create_app(
 
     @app.hook("before_request")
     def remove_trailing_slashes_hook() -> None:
-        request.environ["PATH_INFO"] = request.environ["PATH_INFO"].rstrip("/")
+        # Don't strip the prefix itself if it's the only thing in the path
+        path = request.environ["PATH_INFO"]
+        if path != root_prefix + "/":
+             request.environ["PATH_INFO"] = path.rstrip("/")
 
-    @app.get("/")
+    @app.get(prefix_route("/"))
     def index() -> BottleViewReturn:
-        return redirect("/dashboard", 302)  # Status Found
+        return redirect(prefix_route("/dashboard"), 302)  # Status Found
 
     # Accept any following paths for client-side routing
-    @app.get("/dashboard<:re:(/.*)?>")
+    @app.get(prefix_route("/dashboard<:re:(/.*)?>"))
     def dashboard() -> BottleViewReturn:
-        return static_file("index.html", BASE_DIR, mimetype="text/html")
+        # Read index.html
+        index_path = os.path.join(BASE_DIR, "index.html")
+        if not os.path.exists(index_path):
+             response.status = 404
+             return "index.html not found"
+        try:
+            with open(index_path, "r", encoding="utf-8") as f:
+                html_content = f.read()
+        except Exception as e:
+            logger.error(f"Error reading index.html: {e}")
+            response.status = 500
+            return "Error reading index.html"
 
-    @app.get("/api/meta")
+        # Inject prefix as a JS variable and fix static asset path
+        head_end_tag = "</head>"
+        script_tag = f'<script>window.rootPrefix = "{root_prefix}";</script>'
+        # Replace absolute path with prefixed path
+        modified_html = html_content.replace(
+            'src="/static/bundle.js"', f'src="{prefix_route("/static/bundle.js")}"'
+        )
+        # Inject the prefix variable script just before </head>
+        modified_html = modified_html.replace(head_end_tag, script_tag + head_end_tag, 1)
+
+        response.content_type = "text/html; charset=utf-8"
+        return modified_html
+
+    @app.get(prefix_route("/api/meta"))
     @json_api_view
     def api_meta() -> dict[str, Any]:
         meta: dict[str, Any] = {
@@ -114,9 +163,11 @@ def create_app(
             meta["jupyterlab_extension_context"] = {
                 "base_url": jupyterlab_extension_context.base_url
             }
+        # Also include the prefix for potential use by frontend
+        meta["root_prefix"] = root_prefix
         return meta
 
-    @app.get("/api/studies")
+    @app.get(prefix_route("/api/studies"))
     @json_api_view
     def list_studies() -> dict[str, Any]:
         studies = get_studies(storage)
@@ -126,7 +177,7 @@ def create_app(
             "study_summaries": serialized,
         }
 
-    @app.post("/api/studies")
+    @app.post(prefix_route("/api/studies"))
     @json_api_view
     def create_study() -> dict[str, Any]:
         study_name = request.json.get("study_name", None)
@@ -156,7 +207,7 @@ def create_app(
         response.status = 201  # Created
         return {"study_summary": serialize_frozen_study(study)}
 
-    @app.post("/api/studies/<study_id:int>/rename")
+    @app.post(prefix_route("/api/studies/<study_id:int>/rename"))
     @json_api_view
     def rename_study(study_id: int) -> dict[str, Any]:
         dst_study_name = request.json.get("study_name", None)
@@ -196,7 +247,7 @@ def create_app(
         response.status = 201
         return serialize_frozen_study(new_study)
 
-    @app.delete("/api/studies/<study_id:int>")
+    @app.delete(prefix_route("/api/studies/<study_id:int>"))
     @json_api_view
     def delete_study(study_id: int) -> dict[str, Any]:
         data = request.json or {}
@@ -213,7 +264,7 @@ def create_app(
         response.status = 204  # No content
         return {}
 
-    @app.get("/api/studies/<study_id:int>")
+    @app.get(prefix_route("/api/studies/<study_id:int>"))
     @json_api_view
     def get_study_detail(study_id: int) -> dict[str, Any]:
         try:
@@ -266,7 +317,7 @@ def create_app(
             skipped_trial_numbers,
         )
 
-    @app.get("/api/studies/<study_id:int>/param_importances")
+    @app.get(prefix_route("/api/studies/<study_id:int>/param_importances"))
     @json_api_view
     def get_param_importances(study_id: int) -> dict[str, Any]:
         try:
@@ -308,7 +359,7 @@ def create_app(
             response.status = 400  # Bad request
             return {"reason": str(e)}
 
-    @app.get("/api/studies/<study_id:int>/plot/<plot_type>")
+    @app.get(prefix_route("/api/studies/<study_id:int>/plot/<plot_type>"))
     @json_api_view
     def get_plot(study_id: int, plot_type: str) -> dict[str, Any]:
         study = optuna.load_study(
@@ -339,7 +390,7 @@ def create_app(
             return {"reason": f"plot_type={plot_type} is not supported."}
         return fig.to_json()
 
-    @app.get("/api/compare-studies/plot/<plot_type>")
+    @app.get(prefix_route("/api/compare-studies/plot/<plot_type>"))
     @json_api_view
     def get_compare_studies_plot(plot_type: str) -> dict[str, Any]:
         study_ids = map(int, request.query.getall("study_ids[]"))
@@ -354,7 +405,7 @@ def create_app(
             return {"reason": f"plot_type={plot_type} is not supported."}
         return fig.to_json()
 
-    @app.put("/api/studies/<study_id:int>/note")
+    @app.put(prefix_route("/api/studies/<study_id:int>/note"))
     @json_api_view
     def save_study_note(study_id: int) -> dict[str, Any]:
         req_note_ver = request.json.get("version", None)
@@ -376,7 +427,7 @@ def create_app(
         response.status = 204  # No content
         return {}
 
-    @app.post("/api/studies/<study_id:int>/preference")
+    @app.post(prefix_route("/api/studies/<study_id:int>/preference"))
     @json_api_view
     def post_preference(study_id: int) -> dict[str, Any]:
         try:
@@ -412,7 +463,7 @@ def create_app(
         response.status = 204
         return {}
 
-    @app.put("/api/studies/<study_id:int>/preference_feedback_component")
+    @app.put(prefix_route("/api/studies/<study_id:int>/preference_feedback_component"))
     @json_api_view
     def put_preference_feedback_component(study_id: int) -> dict[str, Any]:
         try:
@@ -434,7 +485,7 @@ def create_app(
         response.status = 204
         return {}
 
-    @app.delete("/api/studies/<study_id:int>/preference/<history_id>")
+    @app.delete(prefix_route("/api/studies/<study_id:int>/preference/<history_id>"))
     @json_api_view
     def remove_preference(study_id: int, history_id: str) -> dict[str, Any]:
         try:
@@ -446,7 +497,7 @@ def create_app(
         response.status = 204
         return {}
 
-    @app.post("/api/studies/<study_id:int>/preference/<history_id>")
+    @app.post(prefix_route("/api/studies/<study_id:int>/preference/<history_id>"))
     @json_api_view
     def restore_preference(study_id: int, history_id: str) -> dict[str, Any]:
         try:
@@ -458,7 +509,7 @@ def create_app(
         response.status = 204
         return {}
 
-    @app.post("/api/trials/<trial_id:int>/tell")
+    @app.post(prefix_route("/api/trials/<trial_id:int>/tell"))
     @json_api_view
     def tell_trial(trial_id: int) -> dict[str, Any]:
         if "state" not in request.json:
@@ -492,7 +543,7 @@ def create_app(
         response.status = 204
         return {}
 
-    @app.post("/api/trials/<trial_id:int>/user-attrs")
+    @app.post(prefix_route("/api/trials/<trial_id:int>/user-attrs"))
     @json_api_view
     def save_trial_user_attrs(trial_id: int) -> dict[str, Any]:
         user_attrs = request.json.get("user_attrs", {})
@@ -506,7 +557,7 @@ def create_app(
         response.status = 204
         return {}
 
-    @app.post("/api/studies/<study_id:int>/<trial_id:int>/skip")
+    @app.post(prefix_route("/api/studies/<study_id:int>/<trial_id:int>/skip"))
     @json_api_view
     def skip_trial(study_id: int, trial_id: int) -> dict[str, Any]:
         try:
@@ -523,7 +574,7 @@ def create_app(
         response.status = 204  # No content
         return {}
 
-    @app.put("/api/studies/<study_id:int>/<trial_id:int>/note")
+    @app.put(prefix_route("/api/studies/<study_id:int>/<trial_id:int>/note"))
     @json_api_view
     def save_trial_note(study_id: int, trial_id: int) -> dict[str, Any]:
         req_note_ver = request.json.get("version", None)
@@ -546,7 +597,7 @@ def create_app(
         response.status = 204  # No content
         return {}
 
-    @app.get("/csv/<study_id:int>")
+    @app.get(prefix_route("/csv/<study_id:int>"))
     def download_csv(study_id: int) -> BottleViewReturn:
         trial_ids_str = request.query.get("trial_ids", "")
         trial_ids: Optional[list[int]] = None
@@ -605,19 +656,21 @@ def create_app(
         buf.seek(0)
         return buf.read()
 
-    @app.get("/favicon.ico")
+    @app.get(prefix_route("/favicon.ico"))
     def favicon() -> BottleViewReturn:
-        use_gzip = "gzip" in request.headers["Accept-Encoding"]
-        filename = "favicon.ico.gz" if use_gzip else "favicon.ico"
-        return static_file(filename, IMG_DIR)
+        if cached_path_exists(os.path.join(IMG_DIR, "favicon.ico")):
+            return static_file("favicon.ico", IMG_DIR, mimetype="image/vnd.microsoft.icon")
+        else:
+            return static_file("favicon.ico", STATIC_DIR, mimetype="image/vnd.microsoft.icon")
 
-    @app.get("/static/<filename:path>")
+    @app.get(prefix_route("/static/<filename:path>"))
     def send_static(filename: str) -> BottleViewReturn:
         mimetype: str | Literal[True] = True
         headers: dict[str, str] | None = None
         if not debug and "gzip" in request.headers["Accept-Encoding"]:
             gz_filename = filename.strip("/\\") + ".gz"
-            if cached_path_exists(os.path.join(STATIC_DIR, gz_filename)):
+            static_gz_path = os.path.join(STATIC_DIR, gz_filename)
+            if cached_path_exists(static_gz_path):
                 filename = gz_filename
                 headers = {"Content-Encoding": "gzip"}
 
@@ -626,8 +679,8 @@ def create_app(
                 mimetype = mimetype_
         return static_file(filename, root=STATIC_DIR, mimetype=mimetype, headers=headers)
 
-    register_rdb_migration_route(app, storage)
-    register_artifact_route(app, storage, artifact_store)
+    register_rdb_migration_route(app, storage, prefix_route=prefix_route)
+    register_artifact_route(app, storage, artifact_store, prefix_route=prefix_route)
     return app
 
 

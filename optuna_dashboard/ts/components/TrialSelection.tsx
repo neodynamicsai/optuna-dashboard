@@ -1,20 +1,20 @@
 import DownloadIcon from "@mui/icons-material/Download"
 import {
   Box,
-  Button,
   Card,
   CardContent,
   FormControl,
   FormControlLabel,
+  IconButton,
   Switch,
+  Tooltip,
   Typography,
   useTheme,
 } from "@mui/material"
 import { PlotParallelCoordinate, TrialTable } from "@optuna/react"
-import React, { FC, useState } from "react"
+import React, { type FC, useMemo, useState } from "react"
 import { Link } from "react-router-dom"
-import { StudyDetail } from "ts/types/optuna"
-import { useConstants } from "../constantsProvider"
+import type { StudyDetail } from "ts/types/optuna"
 import { studyDetailToStudy } from "../graphUtil"
 import { SelectedTrialArtifactCards } from "./Artifact/SelectedTrialArtifactCards"
 import { GraphHistory } from "./GraphHistory"
@@ -24,7 +24,6 @@ export const TrialSelection: FC<{ studyDetail: StudyDetail | null }> = ({
   studyDetail,
 }) => {
   const theme = useTheme()
-  const { url_prefix } = useConstants()
   const [selectedTrials, setSelectedTrials] = useState<number[]>([])
   const [includeInfeasibleTrials, setIncludeInfeasibleTrials] =
     useState<boolean>(true)
@@ -50,10 +49,18 @@ export const TrialSelection: FC<{ studyDetail: StudyDetail | null }> = ({
 
   const study = studyDetailToStudy(studyDetail)
   const linkURL = (studyId: number, trialNumber: number) => {
-    return url_prefix + `/studies/${studyId}/trials?numbers=${trialNumber}`
+    return `/dashboard/studies/${studyId}/trials?numbers=${trialNumber}`
   }
 
   const width = window.innerWidth - 100
+
+  const csvUrl = useMemo(() => {
+    const prefix = (window as any).rootPrefix || ""
+    const selectedTrialIds = selectedTrials
+    return selectedTrialIds.length > 0
+      ? `${prefix}/csv/${studyDetail?.id}?trial_ids=${selectedTrialIds.join(",")}`
+      : `${prefix}/csv/${studyDetail?.id}`
+  }, [studyDetail?.id, selectedTrials])
 
   return (
     <Box
@@ -169,21 +176,17 @@ export const TrialSelection: FC<{ studyDetail: StudyDetail | null }> = ({
                 linkComponent={Link}
                 linkURL={linkURL}
               />
-              <Button
-                variant="outlined"
-                startIcon={<DownloadIcon />}
-                download
-                href={
-                  selectedTrials.length !== study.trials.length
-                    ? `/csv/${
-                        studyDetail?.id
-                      }?trial_ids=${selectedTrials.join()}`
-                    : `/csv/${studyDetail?.id}`
-                }
-                sx={{ marginRight: theme.spacing(2), minWidth: "120px" }}
-              >
-                Download CSV File
-              </Button>
+              <Tooltip title="Download selected trials as CSV" placement="top">
+                <span>
+                  <IconButton
+                    component="a"
+                    href={csvUrl}
+                    disabled={selectedTrials.length === 0}
+                  >
+                    <DownloadIcon />
+                  </IconButton>
+                </span>
+              </Tooltip>
             </CardContent>
           </Card>
         </Box>

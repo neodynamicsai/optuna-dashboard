@@ -22,19 +22,17 @@ import {
 } from "@mui/material"
 import { useAtomValue } from "jotai"
 import React, {
-  FC,
-  useEffect,
-  useState,
+  type FC,
   useDeferredValue,
+  useEffect,
   useMemo,
+  useState,
 } from "react"
-import { useNavigate } from "react-router-dom"
-import { Link } from "react-router-dom"
+import { Link, useNavigate } from "react-router-dom"
 
 import { styled } from "@mui/system"
-import { StudySummary } from "ts/types/optuna"
+import type { StudySummary } from "ts/types/optuna"
 import { actionCreator } from "../action"
-import { useConstants } from "../constantsProvider"
 import { studySummariesLoadingState, studySummariesState } from "../state"
 import { useQuery } from "../urlQuery"
 import { AppDrawer } from "./AppDrawer"
@@ -45,8 +43,6 @@ import { useRenameStudyDialog } from "./RenameStudyDialog"
 export const StudyList: FC<{
   toggleColorMode: () => void
 }> = ({ toggleColorMode }) => {
-  const { url_prefix } = useConstants()
-
   const theme = useTheme()
   const action = actionCreator()
 
@@ -88,7 +84,7 @@ export const StudyList: FC<{
 
   useEffect(() => {
     query.set("studies_order_by", sortBy)
-    navigate(`${location.pathname}?${query.toString()}`, {
+    navigate(`?${query.toString()}`, {
       replace: true,
     })
   }, [sortBy])
@@ -155,7 +151,7 @@ export const StudyList: FC<{
       >
         <CardActionArea
           component={Link}
-          to={`${url_prefix}/studies/${study.study_id}`}
+          to={`/dashboard/studies/${study.study_id}`}
         >
           <CardContent>
             <Typography variant="h5" sx={{ wordBreak: "break-all" }}>
@@ -260,7 +256,7 @@ export const StudyList: FC<{
                   variant="outlined"
                   startIcon={<CompareIcon />}
                   component={Link}
-                  to={`${url_prefix}/compare-studies`}
+                  to={`/dashboard/compare-studies`}
                   sx={{ marginRight: theme.spacing(2), minWidth: "120px" }}
                 >
                   Compare

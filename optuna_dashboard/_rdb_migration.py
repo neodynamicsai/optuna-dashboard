@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+from typing import TYPE_CHECKING
 
 from bottle import Bottle
 from bottle import redirect
@@ -11,6 +12,9 @@ from optuna.storages import RDBStorage
 from optuna.version import __version__ as optuna_ver
 
 from ._bottle_util import BottleViewReturn
+
+if TYPE_CHECKING:
+    from typing import Callable
 
 
 rdb_schema_migrate_lock = threading.Lock()
@@ -59,6 +63,10 @@ body {
 )
 
 
+def _no_prefix(route: str) -> str:
+    return route
+
+
 def update_schema_compatibility_flags(storage: RDBStorage) -> None:
     global rdb_schema_needs_migrate, rdb_schema_unsupported
 
@@ -73,14 +81,18 @@ def is_incompatible() -> bool:
     return rdb_schema_needs_migrate or rdb_schema_unsupported
 
 
-def register_rdb_migration_route(app: Bottle, storage: BaseStorage) -> None:
+def register_rdb_migration_route(
+    app: Bottle, 
+    storage: BaseStorage,
+    prefix_route: Callable[[str], str] = _no_prefix
+) -> None:
     if isinstance(storage, RDBStorage):
         update_schema_compatibility_flags(storage)
 
     @app.get("/incompatible-rdb-schema")
     def get_incompatible_rdb_schema() -> BottleViewReturn:
         if not is_incompatible() or not isinstance(storage, RDBStorage):
-            return redirect("/dashboard", 302)
+            return redirect(prefix_route("/dashboard"), 302)
         return rdb_schema_template.render(
             rdb_schema_needs_migrate=rdb_schema_needs_migrate,
             rdb_schema_unsupported=rdb_schema_unsupported,
@@ -90,21 +102,23 @@ def register_rdb_migration_route(app: Bottle, storage: BaseStorage) -> None:
     @app.post("/incompatible-rdb-schema")
     def post_incompatible_rdb_schema() -> BottleViewReturn:
         if not isinstance(storage, RDBStorage):
-            return redirect("/dashboard", 302)
+            return redirect(prefix_route("/dashboard"), 302)
 
         global rdb_schema_needs_migrate
         assert not rdb_schema_unsupported
         with rdb_schema_migrate_lock:
             storage.upgrade()
             rdb_schema_needs_migrate = False
-        return redirect("/dashboard", 302)
+        return redirect(prefix_route("/dashboard"), 302)
 
     @app.hook("before_request")
     def check_schema_compatibility() -> None:
         if not isinstance(storage, RDBStorage):
             return
-
-        if request.path != "/" and not request.path.startswith("/dashboard"):
+        
+        prefixed_dashboard_path = prefix_route("/dashboard")
+        prefix_root = prefix_route("")
+        if not request.path.startswith(prefixed_dashboard_path) and request.path != prefix_root:
             return
 
         update_schema_compatibility_flags(storage)
